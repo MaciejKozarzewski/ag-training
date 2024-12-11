@@ -19,17 +19,31 @@ def make_channels_last(x: torch.Tensor) -> torch.Tensor:
     return torch.permute(x, (0, 2, 3, 1)).contiguous()
 
 
-dataset = AGDataset(250, 250, '/home/maciek/alphagomoku/new_runs/btl_pv_8x128s/train_buffer/')
+dataset = AGDataset(200, 249, '/home/maciek/alphagomoku/new_runs/btl_pv_8x128s/train_buffer_v200/')
 dataset.print_info()
 
 from conv_network import BottleneckPV
+from transformer_network import TransformerPV
 from loss import Loss
 
-model = BottleneckPV(32, 128, 8)
+# model = BottleneckPV(32, 128, 8)
+model = TransformerPV(32, 128, 5)
 model = model.cuda(0)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=1.0e-3, fused=True)
+optimizer = torch.optim.RAdam(model.parameters(), lr=1.0e-3)
 loss_fn = Loss(1.0, 1.0, 0.0)
+
+
+def lr_scheduler(epoch):
+    if epoch < 10:
+        return (1 + epoch) * 0.1
+    elif epoch >= 75:
+        return 0.1
+    else:
+        return 1.0
+
+
+scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_scheduler)
 
 print()
 
@@ -70,18 +84,21 @@ def get_accuracy(output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return (out_idx == tar_idx).sum()
 
 
-def train_one_epoch(batch_size: int):
+def train_one_epoch(batch_size: int, steps: int):
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
     running_loss = None
     policy_accuracy = None
     value_accuracy = None
-    samples_processed = 0
     last_loss = [0.0, 0.0]
 
     compute_time = 0.0
     copy_time = 0.0
     stats_time = 0.0
     start = time.time()
-    for i in range(10000):
+
+    for i in range(steps):
         with torch.no_grad():
             training_data = dataset.load_entire_batch(batch_size)
 
@@ -100,7 +117,6 @@ def train_one_epoch(batch_size: int):
         loss_dict = loss_fn(out_policy, training_data['policy_target'], out_value, training_data['value_target'])
         loss = loss_dict['policy_loss'] + loss_dict['value_loss']
         loss.backward()
-
         optimizer.step()
 
         compute_time += time.time() - t0
@@ -113,37 +129,30 @@ def train_one_epoch(batch_size: int):
 
             acc = get_accuracy(out_value, training_data['value_target'])
             value_accuracy = sum_running_accuracy(value_accuracy, acc)
-            samples_processed += batch_size
 
         stats_time += time.time() - t0
-        if i % 1000 == 999:
-            last_loss[0] = running_loss['policy_loss'].item() / 1000
-            last_loss[1] = running_loss['value_loss'].item() / 1000
-            policy_acc = policy_accuracy.item() / samples_processed
-            value_acc = value_accuracy.item() / samples_processed
-            print('batch {}, policy loss: {}, value loss {}'.format(i + 1, last_loss[0], last_loss[1]))
-            print('batch {}, policy accuracy {}%, value accuracy {}%'.format(i + 1, 100 * policy_acc, 100 * value_acc))
-            print('compute {}, total {}'.format(compute_time, time.time() - start))
-            print('shuffling {}, DLL {}, preprocessing {}, copy {}, stats {}'.format(dataset.shuffling_time,
-                                                                                     dataset.total_dll_time,
-                                                                                     dataset.prepare_target, copy_time,
-                                                                                     stats_time))
-            print()
 
-            dataset.total_dll_time = 0.0
-            dataset.prepare_target = 0.0
-            dataset.shuffling_time = 0.0
+    last_loss[0] = running_loss['policy_loss'].item() / steps
+    last_loss[1] = running_loss['value_loss'].item() / steps
+    policy_acc = policy_accuracy.item() / (steps * batch_size)
+    value_acc = value_accuracy.item() / (steps * batch_size)
+    print('policy loss: {}, value loss {}'.format(last_loss[0], last_loss[1]))
+    print('policy accuracy {}%, value accuracy {}%'.format(100 * policy_acc, 100 * value_acc))
+    print('compute {}, total {}'.format(compute_time, time.time() - start))
+    print('shuffling {}, DLL {}, preprocessing {}, copy {}, stats {}'.format(dataset.shuffling_time,
+                                                                             dataset.total_dll_time,
+                                                                             dataset.prepare_target, copy_time,
+                                                                             stats_time))
+    print()
 
-            running_loss = None
-            policy_accuracy = None
-            value_accuracy = None
-            samples_processed = 0
-            compute_time = 0.0
-            copy_time = 0.0
-            stats_time = 0.0
-            start = time.time()
-
-    return last_loss
+    dataset.total_dll_time = 0.0
+    dataset.prepare_target = 0.0
+    dataset.shuffling_time = 0.0
+    scheduler.step()
 
 
-train_one_epoch(128)
+for i in range(100):
+    print('epoch', i)
+    train_one_epoch(128, 1000)
+    if i % 10 == 0:
+        torch.save(model, './model.pth')

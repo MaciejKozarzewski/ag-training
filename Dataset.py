@@ -55,7 +55,7 @@ class AGDataset(Dataset):
             sample_ids)
         self.total_dll_time += (time.time() - t0)
 
-        return {'input': input.pin_memory(), 'policy_target': policy_target.pin_memory(), 'value_target': value_target.pin_memory()}
+        return {'input': input, 'policy_target': policy_target, 'value_target': value_target}
 
     def _reset_ordering(self) -> None:
         self._permutation = np.random.permutation(range(len(self._sizes)))

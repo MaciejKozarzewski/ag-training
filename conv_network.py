@@ -5,17 +5,18 @@ import torch.nn as nn
 def add_bias(x: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
     x = torch.permute(x, (0, 2, 3, 1))  # to NHWC
     x = x + bias
-    return torch.permute(x, (0, 3, 1, 2))  # to NCHW
+    return torch.permute(x, (0, 3, 1, 2))  # back to NCHW
 
 
 class ConvBatchNormAct(torch.nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, act: str = None):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, act: str = None, name: str = ''):
         super(ConvBatchNormAct, self).__init__()
         pad = (kernel_size - 1) // 2
         self._conv = torch.nn.Conv2d(in_channels, out_channels, kernel_size, padding=(pad, pad), bias=False)
         self._batchnorm = torch.nn.BatchNorm2d(out_channels, affine=False)
         self._bias = torch.nn.Parameter(torch.zeros(out_channels), requires_grad=True)
         self._act = act
+        nn.init.uniform_(self._bias, 0.0, 0.1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self._conv(x)
@@ -34,6 +35,7 @@ class DenseBatchNormAct(torch.nn.Module):
         self._batchnorm = torch.nn.BatchNorm1d(out_channels, affine=False)
         self._bias = torch.nn.Parameter(torch.zeros(out_channels), requires_grad=True)
         self._act = act
+        nn.init.uniform_(self._bias, 0.0, 0.1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self._dense(x)
@@ -86,7 +88,7 @@ class ValueHead(torch.nn.Module):
         self._dense_2 = DenseBatchNormAct(256, 3)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x = self._conv_1x1(x)
+        x = self._conv_1x1(x)
 
         board_size = (x.shape[2], x.shape[3])
         avg = torch.nn.functional.avg_pool2d(x, board_size).squeeze((2, 3))

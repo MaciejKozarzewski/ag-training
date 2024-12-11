@@ -58,40 +58,6 @@ at::Tensor get_dataset_size(const at::Tensor &tmp)
 	return result;
 }
 
-std::vector<at::Tensor> get_sample(const at::Tensor &sample)
-{
-	ag::TensorSize_t input_size;
-	ag::TensorSize_t visits_size;
-	ag::TensorSize_t policy_prior_size;
-	ag::TensorSize_t value_target_size;
-	ag::TensorSize_t minimax_value_size;
-	ag::TensorSize_t minimax_score_size;
-	ag::TensorSize_t moves_left_size;
-	ag::TensorSize_t action_values_size;
-	ag::TensorSize_t action_scores_size;
-
-	const ag::Sample_t sample_idx = tensor_to_sample_idx(sample);
-
-	ag::get_tensor_sizes(sample_idx, &input_size, &visits_size, &policy_prior_size, &value_target_size, &minimax_value_size, &minimax_score_size,
-			&moves_left_size, &action_values_size, &action_scores_size);
-
-	at::Tensor input = create_tensor(input_size, torch::kFloat);
-	at::Tensor visits = create_tensor(visits_size, torch::kFloat);
-	at::Tensor policy_prior = create_tensor(policy_prior_size, torch::kFloat);
-	at::Tensor value_target = create_tensor(value_target_size, torch::kFloat);
-	at::Tensor minimax_value = create_tensor(minimax_value_size, torch::kFloat);
-	at::Tensor minimax_score = create_tensor(minimax_score_size, torch::kInt);
-	at::Tensor moves_left = create_tensor(moves_left_size, torch::kInt);
-	at::Tensor action_values = create_tensor(action_values_size, torch::kFloat);
-	at::Tensor action_scores = create_tensor(action_scores_size, torch::kInt);
-
-	ag::load_data(sample_idx, input.data_ptr<float>(), visits.data_ptr<float>(), policy_prior.data_ptr<float>(), value_target.data_ptr<float>(),
-			minimax_value.data_ptr<float>(), minimax_score.data_ptr<int>(), moves_left.data_ptr<int>(), action_values.data_ptr<float>(),
-			action_scores.data_ptr<int>());
-
-	return std::vector<at::Tensor> { input, visits, policy_prior, value_target, minimax_value, minimax_score, moves_left, action_values, action_scores };
-}
-
 std::vector<at::Tensor> get_multiple_samples(const at::Tensor &samples)
 {
 	ag::TensorSize_t input_size;
@@ -113,7 +79,7 @@ std::vector<at::Tensor> get_multiple_samples(const at::Tensor &samples)
 	at::Tensor moves_left_target = create_tensor(moves_left_target_size, torch::kFloat);
 	at::Tensor action_values_target = create_tensor(action_values_target_size, torch::kFloat);
 
-	ag::load_multiple_samples(batch_size, samples_ptr, input.data_ptr<float>(), policy_target.data_ptr<float>(), value_target.data_ptr<float>(),
+	ag::load_batch(batch_size, samples_ptr, input.data_ptr<float>(), policy_target.data_ptr<float>(), value_target.data_ptr<float>(),
 			moves_left_target.data_ptr<float>(), action_values_target.data_ptr<float>());
 
 	return std::vector<at::Tensor> { input, policy_target, value_target, moves_left_target, action_values_target };
@@ -125,12 +91,10 @@ TORCH_LIBRARY(dataset_utils, m)
 	m.def("unload_dataset_fragment(Tensor tmp, int i) -> ()");
 	m.def("print_dataset_info(Tensor tmp) -> ()");
 	m.def("get_dataset_size(Tensor tmp) -> Tensor");
-	m.def("get_sample(Tensor sample) -> Tensor[]");
 	m.def("get_multiple_samples(Tensor sample) -> Tensor[]");
 	m.impl("load_dataset_fragment", c10::DispatchKey::CPU, TORCH_FN(load_dataset_fragment));
 	m.impl("unload_dataset_fragment", c10::DispatchKey::CPU, TORCH_FN(unload_dataset_fragment));
 	m.impl("print_dataset_info", c10::DispatchKey::CPU, TORCH_FN(print_dataset_info));
 	m.impl("get_dataset_size", c10::DispatchKey::CPU, TORCH_FN(get_dataset_size));
-	m.impl("get_sample", c10::DispatchKey::CPU, TORCH_FN(get_sample));
 	m.impl("get_multiple_samples", c10::DispatchKey::CPU, TORCH_FN(get_multiple_samples));
 }
